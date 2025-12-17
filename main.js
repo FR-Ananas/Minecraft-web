@@ -21,11 +21,9 @@ document.body.appendChild(renderer.domElement);
 // ==============================
 
 const PLAYER_HEIGHT = 1.8;
-
 const player = new THREE.Object3D();
-player.position.set(0, PLAYER_HEIGHT, 5);
+player.position.set(0, PLAYER_HEIGHT + 2, 5);
 scene.add(player);
-
 player.add(camera);
 
 // ==============================
@@ -36,12 +34,11 @@ scene.add(new THREE.DirectionalLight(0xffffff, 1).position.set(10, 20, 10));
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
 // ==============================
-// TEXTURE DES BLOCS
+// TEXTURE
 // ==============================
 
 const textureLoader = new THREE.TextureLoader();
 const blockTexture = textureLoader.load('texture.png');
-
 blockTexture.magFilter = THREE.NearestFilter;
 blockTexture.minFilter = THREE.NearestFilter;
 
@@ -53,11 +50,13 @@ const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
 const blockMaterial = new THREE.MeshStandardMaterial({ map: blockTexture });
 
 // ==============================
-// MONDE (PLUS GRAND + PROFONDEUR)
+// MONDE (BLOCS STOCKÉS)
 // ==============================
 
-const WORLD_SIZE = 40;     // largeur / longueur
-const WORLD_DEPTH = 4;     // épaisseur du sol
+const blocks = [];
+
+const WORLD_SIZE = 40;
+const WORLD_DEPTH = 4;
 
 for (let y = 0; y < WORLD_DEPTH; y++) {
   for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
@@ -65,6 +64,7 @@ for (let y = 0; y < WORLD_DEPTH; y++) {
       const block = new THREE.Mesh(blockGeometry, blockMaterial);
       block.position.set(x, -y, z);
       scene.add(block);
+      blocks.push(block);
     }
   }
 }
@@ -79,10 +79,9 @@ let yaw = 0;
 
 const direction = new THREE.Vector3();
 const move = { forward: false, backward: false, left: false, right: false };
-
 const speed = 5;
 
-// --- Souris ---
+// --- Pointer lock ---
 document.body.addEventListener('click', () => {
   document.body.requestPointerLock();
 });
@@ -91,6 +90,7 @@ document.addEventListener('pointerlockchange', () => {
   isLocked = document.pointerLockElement === document.body;
 });
 
+// --- Souris ---
 document.addEventListener('mousemove', (event) => {
   if (!isLocked) return;
 
@@ -111,7 +111,6 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyA') move.left = true;
   if (e.code === 'KeyD') move.right = true;
 
-  // SAUT
   if (e.code === 'Space' && onGround) {
     velocityY = jumpStrength;
     onGround = false;
@@ -126,7 +125,7 @@ document.addEventListener('keyup', (e) => {
 });
 
 // ==============================
-// PHYSIQUE (GRAVITÉ + SAUT)
+// PHYSIQUE
 // ==============================
 
 let velocityY = 0;
@@ -134,15 +133,18 @@ const gravity = -20;
 const jumpStrength = 8;
 let onGround = false;
 
+// Raycast vers le bas
+const raycaster = new THREE.Raycaster();
+const down = new THREE.Vector3(0, -1, 0);
+
 // ==============================
-// BOUCLE D’ANIMATION
+// BOUCLE
 // ==============================
 
 const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
-
   const delta = clock.getDelta();
 
   // Déplacement horizontal
@@ -162,11 +164,22 @@ function animate() {
   velocityY += gravity * delta;
   player.position.y += velocityY * delta;
 
-  // Sol (Y = 0)
-  if (player.position.y <= PLAYER_HEIGHT) {
-    player.position.y = PLAYER_HEIGHT;
-    velocityY = 0;
-    onGround = true;
+  // Raycast sol
+  raycaster.set(player.position, down);
+  const intersects = raycaster.intersectObjects(blocks);
+
+  if (intersects.length > 0) {
+    const distance = intersects[0].distance;
+
+    if (distance < PLAYER_HEIGHT) {
+      player.position.y += PLAYER_HEIGHT - distance;
+      velocityY = 0;
+      onGround = true;
+    } else {
+      onGround = false;
+    }
+  } else {
+    onGround = false;
   }
 
   renderer.render(scene, camera);
@@ -181,5 +194,5 @@ animate();
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerHeight, window.innerHeight);
 });
