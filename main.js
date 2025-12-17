@@ -3,7 +3,7 @@
 // ==============================
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb); // ciel bleu
+scene.background = new THREE.Color(0x87ceeb);
 
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -17,11 +17,13 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 // ==============================
-// PLAYER (pivot FPS)
+// PLAYER (FPS)
 // ==============================
 
+const PLAYER_HEIGHT = 1.8;
+
 const player = new THREE.Object3D();
-player.position.set(0, 2, 5);
+player.position.set(0, PLAYER_HEIGHT, 5);
 scene.add(player);
 
 player.add(camera);
@@ -30,12 +32,8 @@ player.add(camera);
 // LUMIÈRES
 // ==============================
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-directionalLight.position.set(10, 20, 10);
-scene.add(directionalLight);
-
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-scene.add(ambientLight);
+scene.add(new THREE.DirectionalLight(0xffffff, 1).position.set(10, 20, 10));
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
 // ==============================
 // TEXTURE DES BLOCS
@@ -48,25 +46,26 @@ blockTexture.magFilter = THREE.NearestFilter;
 blockTexture.minFilter = THREE.NearestFilter;
 
 // ==============================
-// GÉOMÉTRIE & MATÉRIAU
+// BLOC
 // ==============================
 
 const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-const blockMaterial = new THREE.MeshStandardMaterial({
-  map: blockTexture
-});
+const blockMaterial = new THREE.MeshStandardMaterial({ map: blockTexture });
 
 // ==============================
-// MONDE PLAT
+// MONDE (PLUS GRAND + PROFONDEUR)
 // ==============================
 
-const WORLD_SIZE = 20;
+const WORLD_SIZE = 40;     // largeur / longueur
+const WORLD_DEPTH = 4;     // épaisseur du sol
 
-for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
-  for (let z = -WORLD_SIZE / 2; z < WORLD_SIZE / 2; z++) {
-    const block = new THREE.Mesh(blockGeometry, blockMaterial);
-    block.position.set(x, 0, z);
-    scene.add(block);
+for (let y = 0; y < WORLD_DEPTH; y++) {
+  for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
+    for (let z = -WORLD_SIZE / 2; z < WORLD_SIZE / 2; z++) {
+      const block = new THREE.Mesh(blockGeometry, blockMaterial);
+      block.position.set(x, -y, z);
+      scene.add(block);
+    }
   }
 }
 
@@ -79,17 +78,11 @@ let pitch = 0;
 let yaw = 0;
 
 const direction = new THREE.Vector3();
-
-const move = {
-  forward: false,
-  backward: false,
-  left: false,
-  right: false
-};
+const move = { forward: false, backward: false, left: false, right: false };
 
 const speed = 5;
 
-// --- Pointer Lock ---
+// --- Souris ---
 document.body.addEventListener('click', () => {
   document.body.requestPointerLock();
 });
@@ -98,12 +91,10 @@ document.addEventListener('pointerlockchange', () => {
   isLocked = document.pointerLockElement === document.body;
 });
 
-// --- Souris (FPS propre) ---
 document.addEventListener('mousemove', (event) => {
   if (!isLocked) return;
 
   const sensitivity = 0.002;
-
   yaw -= event.movementX * sensitivity;
   pitch -= event.movementY * sensitivity;
 
@@ -119,6 +110,12 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyS') move.backward = true;
   if (e.code === 'KeyA') move.left = true;
   if (e.code === 'KeyD') move.right = true;
+
+  // SAUT
+  if (e.code === 'Space' && onGround) {
+    velocityY = jumpStrength;
+    onGround = false;
+  }
 });
 
 document.addEventListener('keyup', (e) => {
@@ -127,6 +124,15 @@ document.addEventListener('keyup', (e) => {
   if (e.code === 'KeyA') move.left = false;
   if (e.code === 'KeyD') move.right = false;
 });
+
+// ==============================
+// PHYSIQUE (GRAVITÉ + SAUT)
+// ==============================
+
+let velocityY = 0;
+const gravity = -20;
+const jumpStrength = 8;
+let onGround = false;
 
 // ==============================
 // BOUCLE D’ANIMATION
@@ -139,17 +145,28 @@ function animate() {
 
   const delta = clock.getDelta();
 
+  // Déplacement horizontal
   direction.set(0, 0, 0);
   if (move.forward) direction.z -= 1;
   if (move.backward) direction.z += 1;
   if (move.left) direction.x -= 1;
   if (move.right) direction.x += 1;
-
   direction.normalize();
 
   if (isLocked) {
     player.translateX(direction.x * speed * delta);
     player.translateZ(direction.z * speed * delta);
+  }
+
+  // Gravité
+  velocityY += gravity * delta;
+  player.position.y += velocityY * delta;
+
+  // Sol (Y = 0)
+  if (player.position.y <= PLAYER_HEIGHT) {
+    player.position.y = PLAYER_HEIGHT;
+    velocityY = 0;
+    onGround = true;
   }
 
   renderer.render(scene, camera);
@@ -158,7 +175,7 @@ function animate() {
 animate();
 
 // ==============================
-// RESIZE FENÊTRE
+// RESIZE
 // ==============================
 
 window.addEventListener('resize', () => {
