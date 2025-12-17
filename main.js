@@ -125,7 +125,7 @@ document.addEventListener('keyup', (e) => {
 });
 
 // ==============================
-// PHYSIQUE
+// PHYSIQUE (GRAVITÉ + SAUT)
 // ==============================
 
 let velocityY = 0;
@@ -133,12 +133,82 @@ const gravity = -20;
 const jumpStrength = 8;
 let onGround = false;
 
-// Raycast vers le bas
-const raycaster = new THREE.Raycaster();
+// Raycaster vertical pour collision sol
 const down = new THREE.Vector3(0, -1, 0);
+const raycaster = new THREE.Raycaster();
+
+// Raycaster central pour poser / casser blocs
+const raycasterBlock = new THREE.Raycaster();
+const pointer = new THREE.Vector2(0, 0);
+let selectedBlock = null;
 
 // ==============================
-// BOUCLE
+// COLLISION HORIZONTALE
+// ==============================
+
+const horizontalRayLength = 0.5;
+
+function checkHorizontalCollisions(deltaX, deltaZ) {
+  const directions = [
+    new THREE.Vector3(deltaX, 0, 0),
+    new THREE.Vector3(0, 0, deltaZ)
+  ];
+
+  for (let dir of directions) {
+    const origin = player.position.clone();
+    raycaster.set(origin, dir.clone().normalize());
+    const intersects = raycaster.intersectObjects(blocks);
+
+    if (intersects.length > 0 && intersects[0].distance < horizontalRayLength) {
+      if (dir.x !== 0) deltaX = 0;
+      if (dir.z !== 0) deltaZ = 0;
+    }
+  }
+
+  return { deltaX, deltaZ };
+}
+
+// ==============================
+// RAYCAST BLOCS
+// ==============================
+
+function updateSelectedBlock() {
+  raycasterBlock.setFromCamera(pointer, camera);
+  const intersects = raycasterBlock.intersectObjects(blocks);
+
+  if (intersects.length > 0) {
+    selectedBlock = intersects[0].object;
+  } else {
+    selectedBlock = null;
+  }
+}
+
+// Clic souris : casser / poser
+document.addEventListener('mousedown', (e) => {
+  if (!isLocked) return;
+  updateSelectedBlock();
+
+  if (e.button === 0 && selectedBlock) { // gauche = casser
+    scene.remove(selectedBlock);
+    blocks.splice(blocks.indexOf(selectedBlock), 1);
+    selectedBlock = null;
+  }
+
+  if (e.button === 2 && selectedBlock) { // droit = poser
+    const normal = raycasterBlock.ray.direction.clone().round();
+    const newPos = selectedBlock.position.clone().add(normal);
+
+    const newBlock = new THREE.Mesh(blockGeometry, blockMaterial);
+    newBlock.position.copy(newPos);
+    scene.add(newBlock);
+    blocks.push(newBlock);
+  }
+});
+
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ==============================
+// BOUCLE D’ANIMATION
 // ==============================
 
 const clock = new THREE.Clock();
@@ -147,7 +217,7 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
 
-  // Déplacement horizontal
+  // Déplacement horizontal avec collisions
   direction.set(0, 0, 0);
   if (move.forward) direction.z -= 1;
   if (move.backward) direction.z += 1;
@@ -156,21 +226,27 @@ function animate() {
   direction.normalize();
 
   if (isLocked) {
-    player.translateX(direction.x * speed * delta);
-    player.translateZ(direction.z * speed * delta);
+    let moveX = direction.x * speed * delta;
+    let moveZ = direction.z * speed * delta;
+
+    const blocked = checkHorizontalCollisions(moveX, moveZ);
+    moveX = blocked.deltaX;
+    moveZ = blocked.deltaZ;
+
+    player.translateX(moveX);
+    player.translateZ(moveZ);
   }
 
   // Gravité
   velocityY += gravity * delta;
   player.position.y += velocityY * delta;
 
-  // Raycast sol
+  // Collision sol
   raycaster.set(player.position, down);
   const intersects = raycaster.intersectObjects(blocks);
 
   if (intersects.length > 0) {
     const distance = intersects[0].distance;
-
     if (distance < PLAYER_HEIGHT) {
       player.position.y += PLAYER_HEIGHT - distance;
       velocityY = 0;
@@ -194,5 +270,5 @@ animate();
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerHeight, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
