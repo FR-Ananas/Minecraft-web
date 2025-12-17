@@ -65,21 +65,32 @@ const materials = {
 const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
 
 // ==============================
-// MONDE (BLOCS ET CHUNKS)
+// MONDE (CHUNKS AVEC INSTANCEDMESH)
 // ==============================
 
-const blocks = [];
-const chunks = {};
-
 const CHUNK_SIZE = 16;
-const CHUNK_HEIGHT = 26; // y=0 à y=-25
+const CHUNK_HEIGHT = 26;
 const RENDER_DISTANCE = 1; // chunks autour du joueur
+const chunks = {}; // key = "chunkX,chunkZ", value = {mesh: InstancedMesh, blocks: []}
+
+// Pour collisions et pose/casse
+const blocks = [];
 
 function generateChunk(chunkX, chunkZ) {
   const key = `${chunkX},${chunkZ}`;
   if (chunks[key]) return;
 
+  // Pour simplifier, on crée un InstancedMesh par matériau
+  const materialMeshes = [];
+  for (let i = 0; i < 4; i++) {
+    materialMeshes[i] = new THREE.InstancedMesh(blockGeometry, materials[i], CHUNK_SIZE*CHUNK_SIZE*CHUNK_HEIGHT);
+    materialMeshes[i].count = 0;
+    scene.add(materialMeshes[i]);
+  }
+
   const chunkBlocks = [];
+
+  let instanceIndices = [0, 0, 0, 0]; // compteur par matériau
 
   for (let y = 0; y > -CHUNK_HEIGHT; y--) {
     for (let x = 0; x < CHUNK_SIZE; x++) {
@@ -87,25 +98,60 @@ function generateChunk(chunkX, chunkZ) {
         const globalX = chunkX * CHUNK_SIZE + x;
         const globalZ = chunkZ * CHUNK_SIZE + z;
 
-        let mat;
-        if (y === 0) mat = materials[0];
-        else if (y >= -4) mat = materials[1];
-        else if (y >= -15) mat = materials[2];
-        else mat = materials[3];
+        // Choisir matériau
+        let matIndex;
+        if (y === 0) matIndex = 0;
+        else if (y >= -4) matIndex = 1;
+        else if (y >= -15) matIndex = 2;
+        else matIndex = 3;
 
-        const block = new THREE.Mesh(blockGeometry, mat);
-        block.position.set(globalX, y, globalZ);
-        scene.add(block);
-        blocks.push(block);
-        chunkBlocks.push(block);
+        const dummy = new THREE.Object3D();
+        dummy.position.set(globalX, y, globalZ);
+        dummy.updateMatrix();
+
+        materialMeshes[matIndex].setMatrixAt(instanceIndices[matIndex], dummy.matrix);
+        instanceIndices[matIndex]++;
+
+        // Stocker info pour collisions
+        chunkBlocks.push({position: new THREE.Vector3(globalX, y, globalZ), matIndex});
+        blocks.push({position: new THREE.Vector3(globalX, y, globalZ), matIndex});
       }
     }
   }
 
-  chunks[key] = chunkBlocks;
+  // Mettre à jour le count réel
+  for (let i = 0; i < 4; i++) {
+    materialMeshes[i].count = instanceIndices[i];
+    materialMeshes[i].instanceMatrix.needsUpdate = true;
+  }
+
+  chunks[key] = {meshes: materialMeshes, blocks: chunkBlocks};
+}
+
+function cleanupChunks() {
+  const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
+  const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
+
+  for (let key in chunks) {
+    const [chunkX, chunkZ] = key.split(',').map(Number);
+    if (
+      Math.abs(chunkX - playerChunkX) > RENDER_DISTANCE ||
+      Math.abs(chunkZ - playerChunkZ) > RENDER_DISTANCE
+    ) {
+      // retirer les blocks du tableau global pour collisions
+      for (let b of chunks[key].blocks) {
+        const index = blocks.findIndex(bl => bl.position.equals(b.position));
+        if (index !== -1) blocks.splice(index, 1);
+      }
+      // retirer les meshes de la scène
+      for (let mesh of chunks[key].meshes) scene.remove(mesh);
+      delete chunks[key];
+    }
+  }
 }
 
 function updateChunks() {
+  cleanupChunks();
   const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
   const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
 
@@ -128,43 +174,27 @@ const direction = new THREE.Vector3();
 const move = { forward: false, backward: false, left: false, right: false };
 const speed = 5;
 
-// --- Pointer lock ---
-document.body.addEventListener('click', () => {
-  document.body.requestPointerLock();
-});
+document.body.addEventListener('click', () => document.body.requestPointerLock());
+document.addEventListener('pointerlockchange', () => isLocked = document.pointerLockElement === document.body);
 
-document.addEventListener('pointerlockchange', () => {
-  isLocked = document.pointerLockElement === document.body;
-});
-
-// --- Souris ---
 document.addEventListener('mousemove', (event) => {
   if (!isLocked) return;
-
   const sensitivity = 0.002;
   yaw -= event.movementX * sensitivity;
   pitch -= event.movementY * sensitivity;
-
   pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
-
   player.rotation.y = yaw;
   camera.rotation.x = pitch;
 });
 
-// --- Clavier ---
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', e => {
   if (e.code === 'KeyW') move.forward = true;
   if (e.code === 'KeyS') move.backward = true;
   if (e.code === 'KeyA') move.left = true;
   if (e.code === 'KeyD') move.right = true;
-
-  if (e.code === 'Space' && onGround) {
-    velocityY = jumpStrength;
-    onGround = false;
-  }
+  if (e.code === 'Space' && onGround) { velocityY = jumpStrength; onGround = false; }
 });
-
-document.addEventListener('keyup', (e) => {
+document.addEventListener('keyup', e => {
   if (e.code === 'KeyW') move.forward = false;
   if (e.code === 'KeyS') move.backward = false;
   if (e.code === 'KeyA') move.left = false;
@@ -172,7 +202,7 @@ document.addEventListener('keyup', (e) => {
 });
 
 // ==============================
-// PHYSIQUE (GRAVITÉ + SAUT)
+// PHYSIQUE
 // ==============================
 
 let velocityY = 0;
@@ -186,83 +216,19 @@ const raycasterBlock = new THREE.Raycaster();
 const pointer = new THREE.Vector2(0, 0);
 let selectedBlock = null;
 
-// ==============================
-// COLLISION HORIZONTALE SOLIDE
-// ==============================
-
 function checkHorizontalCollisions(deltaX, deltaZ) {
   const newPos = player.position.clone();
   newPos.x += deltaX;
   newPos.z += deltaZ;
-
   for (let block of blocks) {
     if (
       Math.abs(block.position.x - newPos.x) < 0.5 &&
       Math.abs(block.position.z - newPos.z) < 0.5 &&
       Math.abs(block.position.y - player.position.y) < PLAYER_HEIGHT
-    ) {
-      return { deltaX: 0, deltaZ: 0 };
-    }
+    ) return {deltaX:0, deltaZ:0};
   }
-  return { deltaX, deltaZ };
+  return {deltaX, deltaZ};
 }
-
-// ==============================
-// POSER / CASSER BLOCS
-// ==============================
-
-function updateSelectedBlock() {
-  raycasterBlock.setFromCamera(pointer, camera);
-  const intersects = raycasterBlock.intersectObjects(blocks);
-  if (intersects.length > 0) {
-    selectedBlock = intersects[0].object;
-  } else {
-    selectedBlock = null;
-  }
-}
-
-function canPlaceBlock(position) {
-  for (let block of blocks) {
-    if (block.position.equals(position)) return false;
-  }
-  return true;
-}
-
-document.addEventListener('mousedown', (e) => {
-  if (!isLocked) return;
-  updateSelectedBlock();
-  if (!selectedBlock) return;
-
-  const intersects = raycasterBlock.intersectObject(selectedBlock);
-  if (!intersects.length) return;
-
-  const faceNormal = intersects[0].face.normal;
-
-  if (e.button === 0) { // gauche = casser
-    scene.remove(selectedBlock);
-    blocks.splice(blocks.indexOf(selectedBlock), 1);
-    selectedBlock = null;
-  }
-
-  if (e.button === 2) { // droit = poser
-    const newPos = selectedBlock.position.clone().add(faceNormal);
-    if (canPlaceBlock(newPos)) {
-      const depth = newPos.y;
-      let mat;
-      if (depth === 0) mat = materials[0];
-      else if (depth >= -4) mat = materials[1];
-      else if (depth >= -15) mat = materials[2];
-      else mat = materials[3];
-
-      const newBlock = new THREE.Mesh(blockGeometry, mat);
-      newBlock.position.copy(newPos);
-      scene.add(newBlock);
-      blocks.push(newBlock);
-    }
-  }
-});
-
-document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ==============================
 // BOUCLE D’ANIMATION
@@ -274,25 +240,23 @@ function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
 
-  // Mettre à jour les chunks autour du joueur
+  // Chunks
   updateChunks();
 
-  // Déplacement horizontal avec collisions
-  direction.set(0, 0, 0);
-  if (move.forward) direction.z -= 1;
-  if (move.backward) direction.z += 1;
-  if (move.left) direction.x -= 1;
-  if (move.right) direction.x += 1;
+  // Déplacement
+  direction.set(0,0,0);
+  if (move.forward) direction.z -=1;
+  if (move.backward) direction.z +=1;
+  if (move.left) direction.x -=1;
+  if (move.right) direction.x +=1;
   direction.normalize();
 
   if (isLocked) {
     let moveX = direction.x * speed * delta;
     let moveZ = direction.z * speed * delta;
-
     const blocked = checkHorizontalCollisions(moveX, moveZ);
     moveX = blocked.deltaX;
     moveZ = blocked.deltaZ;
-
     player.translateX(moveX);
     player.translateZ(moveZ);
   }
@@ -303,20 +267,19 @@ function animate() {
 
   // Collision sol
   raycaster.set(player.position, down);
-  const intersects = raycaster.intersectObjects(blocks);
-
-  if (intersects.length > 0) {
+  const intersects = raycaster.intersectObjects(blocks.map(b => { 
+    const dummy = new THREE.Mesh(blockGeometry); 
+    dummy.position.copy(b.position); 
+    return dummy; 
+  }));
+  if (intersects.length>0){
     const distance = intersects[0].distance;
-    if (distance < PLAYER_HEIGHT) {
+    if(distance < PLAYER_HEIGHT){
       player.position.y += PLAYER_HEIGHT - distance;
       velocityY = 0;
       onGround = true;
-    } else {
-      onGround = false;
-    }
-  } else {
-    onGround = false;
-  }
+    } else onGround=false;
+  } else onGround=false;
 
   renderer.render(scene, camera);
 }
