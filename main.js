@@ -22,7 +22,7 @@ document.body.appendChild(renderer.domElement);
 
 const PLAYER_HEIGHT = 1.8;
 const player = new THREE.Object3D();
-player.position.set(0, PLAYER_HEIGHT + 15, 5); // départ haut
+player.position.set(8, PLAYER_HEIGHT + 10, 8); // au-dessus du monde
 scene.add(player);
 player.add(camera);
 
@@ -62,41 +62,27 @@ const materials = {
 const blockGeometry = new THREE.BoxGeometry(1,1,1);
 
 // ==============================
-// MONDE (CHUNKS + INSTANCEDMESH)
+// MONDE FIXE
 // ==============================
 
-const CHUNK_SIZE = 16;
-const CHUNK_HEIGHT = 26;
-const RENDER_DISTANCE = 2;
+const WORLD_WIDTH = 16;
+const WORLD_DEPTH = 16;
+const WORLD_HEIGHT = 26;
 
-const chunks = {};   // key="chunkX,chunkZ" => {meshes, blocks}
-const blocks = [];   // pour collisions
-const chunkQueue = [];
+const instancedMeshes = [];
+for(let i=0;i<4;i++){
+  instancedMeshes[i] = new THREE.InstancedMesh(blockGeometry, materials[i], WORLD_WIDTH*WORLD_DEPTH*WORLD_HEIGHT);
+  instancedMeshes[i].count = 0;
+  scene.add(instancedMeshes[i]);
+}
 
-// ==============================
-// GENERATION CHUNK
-// ==============================
+const blocks = [];
 
-function generateChunk(chunkX, chunkZ){
-  const key = `${chunkX},${chunkZ}`;
-  if(chunks[key]) return;
-
-  const materialMeshes = [];
-  for(let i=0;i<4;i++){
-    materialMeshes[i] = new THREE.InstancedMesh(blockGeometry, materials[i], CHUNK_SIZE*CHUNK_SIZE*CHUNK_HEIGHT);
-    materialMeshes[i].count = 0;
-    scene.add(materialMeshes[i]);
-  }
-
-  const chunkBlocks = [];
-  let instanceIndices = [0,0,0,0];
-
-  for(let y=0;y>-CHUNK_HEIGHT;y--){
-    for(let x=0;x<CHUNK_SIZE;x++){
-      for(let z=0;z<CHUNK_SIZE;z++){
-        const globalX = chunkX*CHUNK_SIZE + x;
-        const globalZ = chunkZ*CHUNK_SIZE + z;
-
+function generateWorld(){
+  let counts = [0,0,0,0];
+  for(let y=0;y>-WORLD_HEIGHT;y--){
+    for(let x=0;x<WORLD_WIDTH;x++){
+      for(let z=0;z<WORLD_DEPTH;z++){
         let matIndex;
         if(y===0) matIndex=0;
         else if(y>=-4) matIndex=1;
@@ -104,135 +90,60 @@ function generateChunk(chunkX, chunkZ){
         else matIndex=3;
 
         const dummy = new THREE.Object3D();
-        dummy.position.set(globalX,y,globalZ);
+        dummy.position.set(x,y,z);
         dummy.updateMatrix();
-        materialMeshes[matIndex].setMatrixAt(instanceIndices[matIndex], dummy.matrix);
-        instanceIndices[matIndex]++;
+        const idx = counts[matIndex];
+        instancedMeshes[matIndex].setMatrixAt(idx,dummy.matrix);
+        counts[matIndex]++;
 
-        const blockData = {position:new THREE.Vector3(globalX,y,globalZ), matIndex};
-        chunkBlocks.push(blockData);
-        blocks.push(blockData);
+        blocks.push({position:new THREE.Vector3(x,y,z), matIndex});
       }
     }
   }
 
   for(let i=0;i<4;i++){
-    materialMeshes[i].count = instanceIndices[i];
-    materialMeshes[i].instanceMatrix.needsUpdate = true;
-  }
-
-  chunks[key] = {meshes:materialMeshes, blocks:chunkBlocks};
-}
-
-// ==============================
-// QUEUE LAZY AVEC PRIORITÉ
-// ==============================
-
-function enqueueChunks(){
-  const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
-  const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
-
-  const candidates = [];
-
-  for (let dx=-RENDER_DISTANCE; dx<=RENDER_DISTANCE; dx++){
-    for (let dz=-RENDER_DISTANCE; dz<=RENDER_DISTANCE; dz++){
-      const chunkX = playerChunkX + dx;
-      const chunkZ = playerChunkZ + dz;
-      const key = `${chunkX},${chunkZ}`;
-      if(!chunks[key] && !chunkQueue.includes(key)){
-        const distance = Math.sqrt(dx*dx + dz*dz);
-        candidates.push({key, distance, chunkX, chunkZ});
-      }
-    }
-  }
-
-  // Tri croissant → chunks les plus proches générés en premier
-  candidates.sort((a,b)=>a.distance-b.distance);
-
-  for(let c of candidates){
-    chunkQueue.push(c.key);
+    instancedMeshes[i].count = counts[i];
+    instancedMeshes[i].instanceMatrix.needsUpdate = true;
   }
 }
 
-function generateNextChunk(){
-  if(chunkQueue.length===0) return;
-  const key = chunkQueue.shift();
-  const [cx, cz] = key.split(',').map(Number);
-  generateChunk(cx, cz);
-}
-
-// ==============================
-// SUPPRESSION CHUNKS LOIN
-// ==============================
-
-function cleanupChunks(){
-  const playerChunkX = Math.floor(player.position.x/CHUNK_SIZE);
-  const playerChunkZ = Math.floor(player.position.z/CHUNK_SIZE);
-
-  for(let key in chunks){
-    const [chunkX,chunkZ] = key.split(',').map(Number);
-    if(Math.abs(chunkX-playerChunkX)>RENDER_DISTANCE || Math.abs(chunkZ-playerChunkZ)>RENDER_DISTANCE){
-      for(let b of chunks[key].blocks){
-        const index = blocks.findIndex(bl=>bl.position.equals(b.position));
-        if(index!==-1) blocks.splice(index,1);
-      }
-      for(let m of chunks[key].meshes) scene.remove(m);
-      delete chunks[key];
-    }
-  }
-}
+generateWorld();
 
 // ==============================
 // POSE / CASSE BLOCS
 // ==============================
 
-function modifyChunkBlock(globalX, globalY, globalZ, action){
-  const chunkX = Math.floor(globalX/CHUNK_SIZE);
-  const chunkZ = Math.floor(globalZ/CHUNK_SIZE);
-  const key = `${chunkX},${chunkZ}`;
-  if(!chunks[key]) return;
-
-  const chunk = chunks[key];
-
+function modifyBlock(globalX, globalY, globalZ, action){
   if(action==='remove'){
-    const index = chunk.blocks.findIndex(b=>b.position.x===globalX && b.position.y===globalY && b.position.z===globalZ);
+    const index = blocks.findIndex(b=>b.position.x===globalX && b.position.y===globalY && b.position.z===globalZ);
     if(index!==-1){
-      const b = chunk.blocks[index];
-      chunk.blocks.splice(index,1);
-      const gIndex = blocks.findIndex(bl=>bl.position.equals(b.position));
-      if(gIndex!==-1) blocks.splice(gIndex,1);
-      updateChunkMesh(chunk);
+      const b = blocks[index];
+      blocks.splice(index,1);
+      updateInstancedMeshes();
     }
   } else if(action==='add'){
-    let matIndex;
-    if(globalY===0) matIndex=0;
-    else if(globalY>=-4) matIndex=1;
-    else if(globalY>=-15) matIndex=2;
-    else matIndex=3;
-
-    const newBlock = {position:new THREE.Vector3(globalX,globalY,globalZ), matIndex};
-    chunk.blocks.push(newBlock);
-    blocks.push(newBlock);
-    updateChunkMesh(chunk);
+    const matIndex = globalY===0 ? 0 : globalY>=-4 ? 1 : globalY>=-15 ? 2 : 3;
+    blocks.push({position:new THREE.Vector3(globalX,globalY,globalZ), matIndex});
+    updateInstancedMeshes();
   }
 }
 
-function updateChunkMesh(chunk){
+function updateInstancedMeshes(){
   let counts = [0,0,0,0];
-  for(let i=0;i<4;i++) chunk.meshes[i].count=0;
+  for(let i=0;i<4;i++) instancedMeshes[i].count = 0;
 
-  for(let b of chunk.blocks){
+  for(let b of blocks){
     const dummy = new THREE.Object3D();
     dummy.position.copy(b.position);
     dummy.updateMatrix();
     const idx = counts[b.matIndex];
-    chunk.meshes[b.matIndex].setMatrixAt(idx,dummy.matrix);
+    instancedMeshes[b.matIndex].setMatrixAt(idx,dummy.matrix);
     counts[b.matIndex]++;
   }
 
   for(let i=0;i<4;i++){
-    chunk.meshes[i].count = counts[i];
-    chunk.meshes[i].instanceMatrix.needsUpdate = true;
+    instancedMeshes[i].count = counts[i];
+    instancedMeshes[i].instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -286,16 +197,10 @@ let onGround=false;
 // ==============================
 
 const clock = new THREE.Clock();
-enqueueChunks();
 
 function animate(){
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
-
-  // --- Chunks ---
-  enqueueChunks();
-  generateNextChunk();
-  cleanupChunks();
 
   // --- Déplacement ---
   direction.set(0,0,0);
@@ -321,17 +226,7 @@ function animate(){
 
   // --- Collision sol ---
   onGround=false;
-  const px = Math.floor(player.position.x/CHUNK_SIZE);
-  const pz = Math.floor(player.position.z/CHUNK_SIZE);
-  const nearbyBlocks=[];
-  for(let dx=-1;dx<=1;dx++){
-    for(let dz=-1;dz<=1;dz++){
-      const key = `${px+dx},${pz+dz}`;
-      if(chunks[key]) nearbyBlocks.push(...chunks[key].blocks);
-    }
-  }
-
-  for(let b of nearbyBlocks){
+  for(let b of blocks){
     if(player.position.x>b.position.x-0.5 && player.position.x<b.position.x+0.5 &&
        player.position.z>b.position.z-0.5 && player.position.z<b.position.z+0.5){
       const dy = player.position.y - b.position.y;
@@ -365,20 +260,11 @@ window.addEventListener('resize',()=>{
 function checkHorizontalCollisions(deltaX,deltaZ){
   const newPos = player.position.clone();
   newPos.x+=deltaX; newPos.z+=deltaZ;
-  const px = Math.floor(newPos.x/CHUNK_SIZE);
-  const pz = Math.floor(newPos.z/CHUNK_SIZE);
-  const nearbyBlocks=[];
-  for(let dx=-1;dx<=1;dx++){
-    for(let dz=-1;dz<=1;dz++){
-      const key = `${px+dx},${pz+dz}`;
-      if(chunks[key]) nearbyBlocks.push(...chunks[key].blocks);
-    }
-  }
 
-  for(let block of nearbyBlocks){
-    if(Math.abs(block.position.x-newPos.x)<0.5 &&
-       Math.abs(block.position.z-newPos.z)<0.5 &&
-       Math.abs(block.position.y-player.position.y)<PLAYER_HEIGHT) return {deltaX:0, deltaZ:0};
+  for(let b of blocks){
+    if(Math.abs(b.position.x-newPos.x)<0.5 &&
+       Math.abs(b.position.z-newPos.z)<0.5 &&
+       Math.abs(b.position.y-player.position.y)<PLAYER_HEIGHT) return {deltaX:0, deltaZ:0};
   }
   return {deltaX, deltaZ};
 }
@@ -394,27 +280,22 @@ document.addEventListener('mousedown', e=>{
   camera.getWorldDirection(dir);
   raycaster.set(camera.getWorldPosition(new THREE.Vector3()), dir);
 
-  // Vérifier collision sur tous les blocs proches du joueur ET du rayon
   let closest=null, minDist=Infinity;
-  for(let key in chunks){
-    for(let b of chunks[key].blocks){
-      const distance = raycaster.ray.origin.distanceTo(b.position);
-      const toBlock = b.position.clone().sub(raycaster.ray.origin);
-      if(distance<5 && Math.abs(toBlock.dot(dir)) < 1) continue; // juste pour approx direction
-      if(distance<minDist){
-        minDist = distance;
-        closest = b;
-      }
+  for(let b of blocks){
+    const distance = raycaster.ray.origin.distanceTo(b.position);
+    if(distance<5 && distance<minDist){
+      minDist = distance;
+      closest = b;
     }
   }
 
   if(!closest) return;
 
-  if(e.button===0) modifyChunkBlock(closest.position.x,closest.position.y,closest.position.z,'remove'); // gauche = casse
+  if(e.button===0) modifyBlock(closest.position.x,closest.position.y,closest.position.z,'remove'); // gauche = casse
   if(e.button===2){
     const pos = closest.position.clone();
     pos.y+=1;
-    modifyChunkBlock(pos.x,pos.y,pos.z,'add'); // droite = pose
+    modifyBlock(pos.x,pos.y,pos.z,'add'); // droite = pose
   }
 });
 
