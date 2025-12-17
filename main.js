@@ -65,28 +65,53 @@ const materials = {
 const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
 
 // ==============================
-// MONDE (BLOCS STOCKÉS)
+// MONDE (BLOCS ET CHUNKS)
 // ==============================
 
 const blocks = [];
+const chunks = {};
 
-const WORLD_SIZE = 40;
-const MAX_DEPTH = -25;
+const CHUNK_SIZE = 16;
+const CHUNK_HEIGHT = 26; // y=0 à y=-25
+const RENDER_DISTANCE = 1; // chunks autour du joueur
 
-for (let y = 0; y >= MAX_DEPTH; y--) {
-  for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
-    for (let z = -WORLD_SIZE / 2; z < WORLD_SIZE / 2; z++) {
-      // Choisir le matériau selon la profondeur
-      let mat;
-      if (y === 0) mat = materials[0];
-      else if (y >= -4) mat = materials[1];
-      else if (y >= -15) mat = materials[2];
-      else mat = materials[3];
+function generateChunk(chunkX, chunkZ) {
+  const key = `${chunkX},${chunkZ}`;
+  if (chunks[key]) return;
 
-      const block = new THREE.Mesh(blockGeometry, mat);
-      block.position.set(x, y, z);
-      scene.add(block);
-      blocks.push(block);
+  const chunkBlocks = [];
+
+  for (let y = 0; y > -CHUNK_HEIGHT; y--) {
+    for (let x = 0; x < CHUNK_SIZE; x++) {
+      for (let z = 0; z < CHUNK_SIZE; z++) {
+        const globalX = chunkX * CHUNK_SIZE + x;
+        const globalZ = chunkZ * CHUNK_SIZE + z;
+
+        let mat;
+        if (y === 0) mat = materials[0];
+        else if (y >= -4) mat = materials[1];
+        else if (y >= -15) mat = materials[2];
+        else mat = materials[3];
+
+        const block = new THREE.Mesh(blockGeometry, mat);
+        block.position.set(globalX, y, globalZ);
+        scene.add(block);
+        blocks.push(block);
+        chunkBlocks.push(block);
+      }
+    }
+  }
+
+  chunks[key] = chunkBlocks;
+}
+
+function updateChunks() {
+  const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
+  const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
+
+  for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+    for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+      generateChunk(playerChunkX + dx, playerChunkZ + dz);
     }
   }
 }
@@ -155,11 +180,8 @@ const gravity = -20;
 const jumpStrength = 8;
 let onGround = false;
 
-// Raycaster vertical pour collision sol
 const down = new THREE.Vector3(0, -1, 0);
 const raycaster = new THREE.Raycaster();
-
-// Raycaster central pour poser / casser blocs
 const raycasterBlock = new THREE.Raycaster();
 const pointer = new THREE.Vector2(0, 0);
 let selectedBlock = null;
@@ -206,11 +228,9 @@ function canPlaceBlock(position) {
   return true;
 }
 
-// Clic souris : casser / poser
 document.addEventListener('mousedown', (e) => {
   if (!isLocked) return;
   updateSelectedBlock();
-
   if (!selectedBlock) return;
 
   const intersects = raycasterBlock.intersectObject(selectedBlock);
@@ -226,7 +246,6 @@ document.addEventListener('mousedown', (e) => {
 
   if (e.button === 2) { // droit = poser
     const newPos = selectedBlock.position.clone().add(faceNormal);
-
     if (canPlaceBlock(newPos)) {
       const depth = newPos.y;
       let mat;
@@ -254,6 +273,9 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+
+  // Mettre à jour les chunks autour du joueur
+  updateChunks();
 
   // Déplacement horizontal avec collisions
   direction.set(0, 0, 0);
