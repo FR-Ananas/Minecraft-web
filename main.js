@@ -125,26 +125,40 @@ function generateChunk(chunkX, chunkZ){
 }
 
 // ==============================
-// QUEUE LAZY
+// QUEUE LAZY AVEC PRIORITÉ
 // ==============================
 
 function enqueueChunks(){
-  const playerChunkX = Math.floor(player.position.x/CHUNK_SIZE);
-  const playerChunkZ = Math.floor(player.position.z/CHUNK_SIZE);
+  const playerChunkX = Math.floor(player.position.x / CHUNK_SIZE);
+  const playerChunkZ = Math.floor(player.position.z / CHUNK_SIZE);
 
-  for(let dx=-RENDER_DISTANCE;dx<=RENDER_DISTANCE;dx++){
-    for(let dz=-RENDER_DISTANCE;dz<=RENDER_DISTANCE;dz++){
-      const key = `${playerChunkX+dx},${playerChunkZ+dz}`;
-      if(!chunks[key] && !chunkQueue.includes(key)) chunkQueue.push(key);
+  const candidates = [];
+
+  for (let dx=-RENDER_DISTANCE; dx<=RENDER_DISTANCE; dx++){
+    for (let dz=-RENDER_DISTANCE; dz<=RENDER_DISTANCE; dz++){
+      const chunkX = playerChunkX + dx;
+      const chunkZ = playerChunkZ + dz;
+      const key = `${chunkX},${chunkZ}`;
+      if(!chunks[key] && !chunkQueue.includes(key)){
+        const distance = Math.sqrt(dx*dx + dz*dz);
+        candidates.push({key, distance, chunkX, chunkZ});
+      }
     }
+  }
+
+  // Tri croissant → chunks les plus proches générés en premier
+  candidates.sort((a,b)=>a.distance-b.distance);
+
+  for(let c of candidates){
+    chunkQueue.push(c.key);
   }
 }
 
 function generateNextChunk(){
   if(chunkQueue.length===0) return;
   const key = chunkQueue.shift();
-  const [cx,cz] = key.split(',').map(Number);
-  generateChunk(cx,cz);
+  const [cx, cz] = key.split(',').map(Number);
+  generateChunk(cx, cz);
 }
 
 // ==============================
@@ -187,11 +201,9 @@ function modifyChunkBlock(globalX, globalY, globalZ, action){
       chunk.blocks.splice(index,1);
       const gIndex = blocks.findIndex(bl=>bl.position.equals(b.position));
       if(gIndex!==-1) blocks.splice(gIndex,1);
-      // regénère l'InstancedMesh
       updateChunkMesh(chunk);
     }
   } else if(action==='add'){
-    // Déterminer matériau selon profondeur
     let matIndex;
     if(globalY===0) matIndex=0;
     else if(globalY>=-4) matIndex=1;
@@ -206,7 +218,6 @@ function modifyChunkBlock(globalX, globalY, globalZ, action){
 }
 
 function updateChunkMesh(chunk){
-  // Reset instance counts
   let counts = [0,0,0,0];
   for(let i=0;i<4;i++) chunk.meshes[i].count=0;
 
@@ -221,7 +232,7 @@ function updateChunkMesh(chunk){
 
   for(let i=0;i<4;i++){
     chunk.meshes[i].count = counts[i];
-    chunk.meshes[i].instanceMatrix.needsUpdate=true;
+    chunk.meshes[i].instanceMatrix.needsUpdate = true;
   }
 }
 
@@ -275,8 +286,6 @@ let onGround=false;
 // ==============================
 
 const clock = new THREE.Clock();
-
-// Génération initiale
 enqueueChunks();
 
 function animate(){
@@ -375,7 +384,7 @@ function checkHorizontalCollisions(deltaX,deltaZ){
 }
 
 // ==============================
-// GESTION DE LA SOURIS POUR POSER/CASSER BLOCS
+// RAYCASTING POUR POSE / CASSE BLOCS
 // ==============================
 
 document.addEventListener('mousedown', e=>{
@@ -385,34 +394,28 @@ document.addEventListener('mousedown', e=>{
   camera.getWorldDirection(dir);
   raycaster.set(camera.getWorldPosition(new THREE.Vector3()), dir);
 
-  // Vérifier collision avec blocs proches
-  const px = Math.floor(player.position.x/CHUNK_SIZE);
-  const pz = Math.floor(player.position.z/CHUNK_SIZE);
-  const nearbyBlocks=[];
-  for(let dx=-1;dx<=1;dx++){
-    for(let dz=-1;dz<=1;dz++){
-      const key = `${px+dx},${pz+dz}`;
-      if(chunks[key]) nearbyBlocks.push(...chunks[key].blocks);
-    }
-  }
-
-  let closest = null;
-  let minDist = Infinity;
-  for(let b of nearbyBlocks){
-    const distance = raycaster.ray.origin.distanceTo(b.position);
-    if(distance<minDist && distance<5){
-      minDist = distance;
-      closest = b;
+  // Vérifier collision sur tous les blocs proches du joueur ET du rayon
+  let closest=null, minDist=Infinity;
+  for(let key in chunks){
+    for(let b of chunks[key].blocks){
+      const distance = raycaster.ray.origin.distanceTo(b.position);
+      const toBlock = b.position.clone().sub(raycaster.ray.origin);
+      if(distance<5 && Math.abs(toBlock.dot(dir)) < 1) continue; // juste pour approx direction
+      if(distance<minDist){
+        minDist = distance;
+        closest = b;
+      }
     }
   }
 
   if(!closest) return;
+
   if(e.button===0) modifyChunkBlock(closest.position.x,closest.position.y,closest.position.z,'remove'); // gauche = casse
   if(e.button===2){
     const pos = closest.position.clone();
-    pos.y+=1; // poser dessus
-    modifyChunkBlock(pos.x,pos.y,pos.z,'add');
+    pos.y+=1;
+    modifyChunkBlock(pos.x,pos.y,pos.z,'add'); // droite = pose
   }
 });
 
-document.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('contextmenu', e=>e.preventDefault());
