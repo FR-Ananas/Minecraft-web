@@ -2,16 +2,46 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Minecraft Web</title>
+  <title>Mini Minecraft 3D</title>
   <style>
-    body { margin: 0; overflow: hidden; }
-    canvas { display: block; }
+    /* ==========================
+       RÉTICULE
+       ========================== */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      margin-left: -5px;
+      margin-top: -5px;
+      border: 2px solid white;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    /* ==========================
+       BODY ET CANVAS
+       ========================== */
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #87ceeb;
+    }
+
+    canvas {
+      display: block;
+    }
   </style>
 </head>
 <body>
+  <div id="crosshair"></div>
 
-<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-<script src="main.js"></script>
+  <!-- Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
+  <!-- Script principal -->
+  <script src="main.js"></script>
 </body>
 </html>
