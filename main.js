@@ -143,39 +143,33 @@ const pointer = new THREE.Vector2(0, 0);
 let selectedBlock = null;
 
 // ==============================
-// COLLISION HORIZONTALE
+// COLLISION HORIZONTALE SOLIDE
 // ==============================
 
-const horizontalRayLength = 0.5;
-
 function checkHorizontalCollisions(deltaX, deltaZ) {
-  const directions = [
-    new THREE.Vector3(deltaX, 0, 0),
-    new THREE.Vector3(0, 0, deltaZ)
-  ];
+  const newPos = player.position.clone();
+  newPos.x += deltaX;
+  newPos.z += deltaZ;
 
-  for (let dir of directions) {
-    const origin = player.position.clone();
-    raycaster.set(origin, dir.clone().normalize());
-    const intersects = raycaster.intersectObjects(blocks);
-
-    if (intersects.length > 0 && intersects[0].distance < horizontalRayLength) {
-      if (dir.x !== 0) deltaX = 0;
-      if (dir.z !== 0) deltaZ = 0;
+  for (let block of blocks) {
+    if (
+      Math.abs(block.position.x - newPos.x) < 0.5 &&
+      Math.abs(block.position.z - newPos.z) < 0.5 &&
+      Math.abs(block.position.y - player.position.y) < PLAYER_HEIGHT
+    ) {
+      return { deltaX: 0, deltaZ: 0 };
     }
   }
-
   return { deltaX, deltaZ };
 }
 
 // ==============================
-// RAYCAST BLOCS
+// POSER / CASSER BLOCS
 // ==============================
 
 function updateSelectedBlock() {
   raycasterBlock.setFromCamera(pointer, camera);
   const intersects = raycasterBlock.intersectObjects(blocks);
-
   if (intersects.length > 0) {
     selectedBlock = intersects[0].object;
   } else {
@@ -183,28 +177,44 @@ function updateSelectedBlock() {
   }
 }
 
+function canPlaceBlock(position) {
+  for (let block of blocks) {
+    if (block.position.equals(position)) return false;
+  }
+  return true;
+}
+
 // Clic souris : casser / poser
 document.addEventListener('mousedown', (e) => {
   if (!isLocked) return;
   updateSelectedBlock();
 
-  if (e.button === 0 && selectedBlock) { // gauche = casser
+  if (!selectedBlock) return;
+
+  const intersects = raycasterBlock.intersectObject(selectedBlock);
+  if (!intersects.length) return;
+
+  const faceNormal = intersects[0].face.normal;
+
+  if (e.button === 0) { // gauche = casser
     scene.remove(selectedBlock);
     blocks.splice(blocks.indexOf(selectedBlock), 1);
     selectedBlock = null;
   }
 
-  if (e.button === 2 && selectedBlock) { // droit = poser
-    const normal = raycasterBlock.ray.direction.clone().round();
-    const newPos = selectedBlock.position.clone().add(normal);
+  if (e.button === 2) { // droit = poser
+    const newPos = selectedBlock.position.clone().add(faceNormal);
 
-    const newBlock = new THREE.Mesh(blockGeometry, blockMaterial);
-    newBlock.position.copy(newPos);
-    scene.add(newBlock);
-    blocks.push(newBlock);
+    if (canPlaceBlock(newPos)) {
+      const newBlock = new THREE.Mesh(blockGeometry, blockMaterial);
+      newBlock.position.copy(newPos);
+      scene.add(newBlock);
+      blocks.push(newBlock);
+    }
   }
 });
 
+// Empêcher menu contextuel sur clic droit
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ==============================
