@@ -34,20 +34,35 @@ scene.add(new THREE.DirectionalLight(0xffffff, 1).position.set(10, 20, 10));
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
 // ==============================
-// TEXTURE
+// TEXTURES SELON LA PROFONDEUR
 // ==============================
 
 const textureLoader = new THREE.TextureLoader();
-const blockTexture = textureLoader.load('texture.png');
-blockTexture.magFilter = THREE.NearestFilter;
-blockTexture.minFilter = THREE.NearestFilter;
+
+const textures = {
+  0: textureLoader.load('texture_un.png'),
+  1: textureLoader.load('texture_deux.png'),
+  2: textureLoader.load('texture_trois.png'),
+  3: textureLoader.load('texture_quatre.png')
+};
+
+for (let key in textures) {
+  textures[key].magFilter = THREE.NearestFilter;
+  textures[key].minFilter = THREE.NearestFilter;
+}
+
+const materials = {
+  0: new THREE.MeshStandardMaterial({ map: textures[0] }),
+  1: new THREE.MeshStandardMaterial({ map: textures[1] }),
+  2: new THREE.MeshStandardMaterial({ map: textures[2] }),
+  3: new THREE.MeshStandardMaterial({ map: textures[3] })
+};
 
 // ==============================
 // BLOC
 // ==============================
 
 const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-const blockMaterial = new THREE.MeshStandardMaterial({ map: blockTexture });
 
 // ==============================
 // MONDE (BLOCS STOCKÉS)
@@ -56,13 +71,20 @@ const blockMaterial = new THREE.MeshStandardMaterial({ map: blockTexture });
 const blocks = [];
 
 const WORLD_SIZE = 40;
-const WORLD_DEPTH = 4;
+const MAX_DEPTH = -25;
 
-for (let y = 0; y < WORLD_DEPTH; y++) {
+for (let y = 0; y >= MAX_DEPTH; y--) {
   for (let x = -WORLD_SIZE / 2; x < WORLD_SIZE / 2; x++) {
     for (let z = -WORLD_SIZE / 2; z < WORLD_SIZE / 2; z++) {
-      const block = new THREE.Mesh(blockGeometry, blockMaterial);
-      block.position.set(x, -y, z);
+      // Choisir le matériau selon la profondeur
+      let mat;
+      if (y === 0) mat = materials[0];
+      else if (y >= -4) mat = materials[1];
+      else if (y >= -15) mat = materials[2];
+      else mat = materials[3];
+
+      const block = new THREE.Mesh(blockGeometry, mat);
+      block.position.set(x, y, z);
       scene.add(block);
       blocks.push(block);
     }
@@ -206,7 +228,14 @@ document.addEventListener('mousedown', (e) => {
     const newPos = selectedBlock.position.clone().add(faceNormal);
 
     if (canPlaceBlock(newPos)) {
-      const newBlock = new THREE.Mesh(blockGeometry, blockMaterial);
+      const depth = newPos.y;
+      let mat;
+      if (depth === 0) mat = materials[0];
+      else if (depth >= -4) mat = materials[1];
+      else if (depth >= -15) mat = materials[2];
+      else mat = materials[3];
+
+      const newBlock = new THREE.Mesh(blockGeometry, mat);
       newBlock.position.copy(newPos);
       scene.add(newBlock);
       blocks.push(newBlock);
@@ -214,7 +243,6 @@ document.addEventListener('mousedown', (e) => {
   }
 });
 
-// Empêcher menu contextuel sur clic droit
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ==============================
