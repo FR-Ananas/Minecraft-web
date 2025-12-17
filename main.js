@@ -12,11 +12,19 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-camera.position.set(0, 2, 5);
-
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+
+// ==============================
+// PLAYER (pivot FPS)
+// ==============================
+
+const player = new THREE.Object3D();
+player.position.set(0, 2, 5);
+scene.add(player);
+
+player.add(camera);
 
 // ==============================
 // LUMIÈRES
@@ -70,7 +78,6 @@ let isLocked = false;
 let pitch = 0;
 let yaw = 0;
 
-const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 
 const move = {
@@ -91,7 +98,7 @@ document.addEventListener('pointerlockchange', () => {
   isLocked = document.pointerLockElement === document.body;
 });
 
-// --- Souris ---
+// --- Souris (FPS propre) ---
 document.addEventListener('mousemove', (event) => {
   if (!isLocked) return;
 
@@ -102,7 +109,8 @@ document.addEventListener('mousemove', (event) => {
 
   pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
 
-  camera.rotation.set(pitch, yaw, 0);
+  player.rotation.y = yaw;
+  camera.rotation.x = pitch;
 });
 
 // --- Clavier ---
@@ -140,11 +148,8 @@ function animate() {
   direction.normalize();
 
   if (isLocked) {
-    velocity.x = direction.x * speed * delta;
-    velocity.z = direction.z * speed * delta;
-
-    camera.translateX(velocity.x);
-    camera.translateZ(velocity.z);
+    player.translateX(direction.x * speed * delta);
+    player.translateZ(direction.z * speed * delta);
   }
 
   renderer.render(scene, camera);
