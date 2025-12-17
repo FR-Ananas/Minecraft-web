@@ -22,7 +22,8 @@ document.body.appendChild(renderer.domElement);
 
 const PLAYER_HEIGHT = 1.8;
 const player = new THREE.Object3D();
-player.position.set(0, PLAYER_HEIGHT + 2, 5);
+// Position initiale plus haute pour voir le monde avant de tomber
+player.position.set(0, PLAYER_HEIGHT + 15, 5);
 scene.add(player);
 player.add(camera);
 
@@ -80,7 +81,7 @@ function generateChunk(chunkX, chunkZ) {
   const key = `${chunkX},${chunkZ}`;
   if (chunks[key]) return;
 
-  // Pour simplifier, on crée un InstancedMesh par matériau
+  // Créer un InstancedMesh par matériau
   const materialMeshes = [];
   for (let i = 0; i < 4; i++) {
     materialMeshes[i] = new THREE.InstancedMesh(blockGeometry, materials[i], CHUNK_SIZE*CHUNK_SIZE*CHUNK_HEIGHT);
@@ -112,14 +113,12 @@ function generateChunk(chunkX, chunkZ) {
         materialMeshes[matIndex].setMatrixAt(instanceIndices[matIndex], dummy.matrix);
         instanceIndices[matIndex]++;
 
-        // Stocker info pour collisions
         chunkBlocks.push({position: new THREE.Vector3(globalX, y, globalZ), matIndex});
         blocks.push({position: new THREE.Vector3(globalX, y, globalZ), matIndex});
       }
     }
   }
 
-  // Mettre à jour le count réel
   for (let i = 0; i < 4; i++) {
     materialMeshes[i].count = instanceIndices[i];
     materialMeshes[i].instanceMatrix.needsUpdate = true;
@@ -138,12 +137,10 @@ function cleanupChunks() {
       Math.abs(chunkX - playerChunkX) > RENDER_DISTANCE ||
       Math.abs(chunkZ - playerChunkZ) > RENDER_DISTANCE
     ) {
-      // retirer les blocks du tableau global pour collisions
       for (let b of chunks[key].blocks) {
         const index = blocks.findIndex(bl => bl.position.equals(b.position));
         if (index !== -1) blocks.splice(index, 1);
       }
-      // retirer les meshes de la scène
       for (let mesh of chunks[key].meshes) scene.remove(mesh);
       delete chunks[key];
     }
@@ -211,30 +208,15 @@ const jumpStrength = 8;
 let onGround = false;
 
 const down = new THREE.Vector3(0, -1, 0);
-const raycaster = new THREE.Raycaster();
-const raycasterBlock = new THREE.Raycaster();
-const pointer = new THREE.Vector2(0, 0);
-let selectedBlock = null;
-
-function checkHorizontalCollisions(deltaX, deltaZ) {
-  const newPos = player.position.clone();
-  newPos.x += deltaX;
-  newPos.z += deltaZ;
-  for (let block of blocks) {
-    if (
-      Math.abs(block.position.x - newPos.x) < 0.5 &&
-      Math.abs(block.position.z - newPos.z) < 0.5 &&
-      Math.abs(block.position.y - player.position.y) < PLAYER_HEIGHT
-    ) return {deltaX:0, deltaZ:0};
-  }
-  return {deltaX, deltaZ};
-}
 
 // ==============================
 // BOUCLE D’ANIMATION
 // ==============================
 
 const clock = new THREE.Clock();
+
+// --- Générer les chunks initiaux avant l'animation ---
+updateChunks();
 
 function animate() {
   requestAnimationFrame(animate);
@@ -265,21 +247,21 @@ function animate() {
   velocityY += gravity * delta;
   player.position.y += velocityY * delta;
 
-  // Collision sol
-  raycaster.set(player.position, down);
-  const intersects = raycaster.intersectObjects(blocks.map(b => { 
-    const dummy = new THREE.Mesh(blockGeometry); 
-    dummy.position.copy(b.position); 
-    return dummy; 
-  }));
-  if (intersects.length>0){
-    const distance = intersects[0].distance;
-    if(distance < PLAYER_HEIGHT){
-      player.position.y += PLAYER_HEIGHT - distance;
-      velocityY = 0;
-      onGround = true;
-    } else onGround=false;
-  } else onGround=false;
+  // Collision sol simplifiée
+  onGround = false;
+  for (let b of blocks) {
+    if (
+      player.position.x > b.position.x - 0.5 && player.position.x < b.position.x + 0.5 &&
+      player.position.z > b.position.z - 0.5 && player.position.z < b.position.z + 0.5
+    ) {
+      const dy = player.position.y - b.position.y;
+      if (dy <= PLAYER_HEIGHT && dy >= 0) {
+        player.position.y = b.position.y + PLAYER_HEIGHT;
+        velocityY = 0;
+        onGround = true;
+      }
+    }
+  }
 
   renderer.render(scene, camera);
 }
