@@ -10,7 +10,11 @@
     position: absolute; z-index: 10; touch-action: none; font-size: 16px; 
   }
   #joystick {bottom: 20px; left: 20px; width: 100px; height: 100px; background: rgba(0,0,0,0.2); border-radius:50%;}
-  button {padding:10px; border:none; border-radius:5px; background:rgba(0,0,0,0.3); color:white;}
+  button {
+    padding: 10px; border: none; border-radius: 5px;
+    background-color: rgba(0,0,0,0.5); color: white; font-size:16px;
+    -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  }
   #jump {bottom: 140px; right: 20px;}
   #break {bottom: 80px; right: 20px;}
   #place {bottom: 20px; right: 20px;}
@@ -22,10 +26,12 @@
 <button id="break">Casser</button>
 <button id="place">Poser</button>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.155/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.3/dist/nipplejs.min.js"></script>
-<script>
+<!-- THREE.JS stable pour script classique -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<!-- NIPPLE.JS pour joystick tactile -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.3/nipplejs.min.js"></script>
 
+<script>
 // ==============================
 // SCÈNE, CAMERA, RENDERER
 // ==============================
